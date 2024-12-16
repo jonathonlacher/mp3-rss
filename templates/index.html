@@ -1,0 +1,95 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube to Podcast Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-container {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input[type="text"] {
+            width: 70%;
+            padding: 8px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .episodes {
+            margin-top: 30px;
+        }
+        .episode {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .feed-url {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>YouTube to Podcast Converter</h1>
+
+    <div class="form-container">
+        <form action="/convert" method="POST">
+            <input type="text" name="url" placeholder="Enter YouTube URL" required>
+            <button type="submit">Convert to MP3</button>
+        </form>
+    </div>
+
+    <div class="feed-url">
+        <strong>RSS Feed URL:</strong>
+        <code id="feedUrl"></code>
+        <button onclick="copyFeedUrl()">Copy</button>
+    </div>
+
+    <div class="episodes">
+        <h2>Available Episodes</h2>
+        {{range .Episodes}}
+        <div class="episode">
+            <h3>{{.Title}}</h3>
+            <p>Duration: {{.Duration}}</p>
+            <p>Added: {{.PubDate}}</p>
+            <audio controls>
+                <source src="/mp3s/{{.File}}" type="audio/mpeg">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        {{end}}
+    </div>
+
+    <script>
+        // Set the feed URL
+        const feedUrl = window.location.protocol + '//' + window.location.host + '/feed';
+        document.getElementById('feedUrl').textContent = feedUrl;
+
+        // Function to copy feed URL
+        function copyFeedUrl() {
+            navigator.clipboard.writeText(feedUrl)
+                .then(() => alert('Feed URL copied to clipboard!'))
+                .catch(err => console.error('Error copying text: ', err));
+        }
+    </script>
+</body>
+</html>
