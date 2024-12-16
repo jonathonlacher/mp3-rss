@@ -1,14 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,14 +59,24 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Create mp3s directory
-	if err := os.MkdirAll("mp3s", 0755); err != nil {
-		log.Fatalf("Failed to create mp3s directory: %v", err)
+	// Create required directories
+	for _, dir := range []string{"mp3s", "metadata"} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
 	}
 
+	// Setup progress channel for conversion updates
+	progressChan := make(chan string, 100)
+	defer close(progressChan)
+
+	// Setup HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleHome)
-	mux.HandleFunc("/convert", handleConvert)
+	mux.HandleFunc("/convert", func(w http.ResponseWriter, r *http.Request) {
+		handleConvert(w, r, progressChan)
+	})
+	mux.HandleFunc("/progress", handleProgress(progressChan))
 	mux.HandleFunc("/feed", handleRSS)
 	mux.Handle("/mp3s/", http.StripPrefix("/mp3s/", http.FileServer(http.Dir("mp3s"))))
 
@@ -138,7 +149,40 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleConvert(w http.ResponseWriter, r *http.Request) {
+func handleProgress(progressChan <-chan string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set headers for SSE
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+			return
+		}
+
+		// Create a channel for disconnect detection
+		notify := r.Context().Done()
+
+		for {
+			select {
+			case msg, ok := <-progressChan:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(w, "data: %s\n\n", msg)
+				flusher.Flush()
+			case <-notify:
+				// Client disconnected
+				return
+			}
+		}
+	}
+}
+
+func handleConvert(w http.ResponseWriter, r *http.Request, progressChan chan<- string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -150,32 +194,154 @@ func handleConvert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := convertVideo(youtubeURL); err != nil {
-		log.Printf("Conversion error: %v", err)
-		http.Redirect(w, r, "/?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
-		return
-	}
+	// Create a new channel specifically for this conversion
+	conversionProgress := make(chan string, 100)
 
-	http.Redirect(w, r, "/?message=Conversion successful", http.StatusSeeOther)
+	// Start conversion in a goroutine
+	go func() {
+		if err := convertVideo(youtubeURL, conversionProgress); err != nil {
+			// Send error through progress channel
+			conversionProgress <- "Error: " + err.Error()
+		}
+		close(conversionProgress)
+	}()
+
+	// Forward messages from conversion to the main progress channel
+	go func() {
+		for msg := range conversionProgress {
+			progressChan <- msg
+			if msg == "Conversion complete!" {
+				// Add a small delay before redirecting
+				time.Sleep(500 * time.Millisecond)
+				progressChan <- "DONE" // Special message to trigger redirect
+			}
+		}
+	}()
+
+	http.Redirect(w, r, "/?message=Conversion started", http.StatusSeeOther)
 }
 
-func convertVideo(youtubeURL string) error {
+// Update the convertVideo function to improve progress reporting
+func convertVideo(youtubeURL string, progressChan chan<- string) error {
+	// First, download metadata to get the title
+	progressChan <- "Fetching video metadata..."
+	tmpDir, err := os.MkdirTemp("", "yt-dl-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	metadataCmd := exec.Command("yt-dlp",
+		"--dump-json",
+		"--no-download",
+		youtubeURL)
+
+	metadataOutput, err := metadataCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to fetch metadata: %w", err)
+	}
+
+	var metadata struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(metadataOutput, &metadata); err != nil {
+		return fmt.Errorf("failed to parse metadata: %w", err)
+	}
+
+	// Sanitize filename
+	safeTitle := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '-'
+		}
+		return r
+	}, metadata.Title)
+
+	progressChan <- "Starting download..."
+
 	cmd := exec.Command("yt-dlp",
 		"--extract-audio",
 		"--audio-format", "mp3",
 		"--audio-quality", "320",
 		"--embed-metadata",
 		"--add-metadata",
+		"--embed-chapters",
 		"--write-info-json",
 		"--write-description",
-		"--embed-chapters",
-		"--output", "mp3s/%(title)s.%(ext)s",
+		"--output", filepath.Join(tmpDir, "%(title)s.%(ext)s"),
+		"--progress",
 		youtubeURL)
 
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %v - %s", ErrConversion, err, string(output))
+	// Create pipes for stdout and stderr
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%w: %v", ErrConversion, err)
 	}
 
+	// Monitor progress output
+	go func() {
+		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+		for scanner.Scan() {
+			line := scanner.Text()
+			log.Println(line) // Keep logging all lines
+
+			// Send progress updates for download and conversion
+			switch {
+			case strings.Contains(line, "[download]"):
+				if strings.Contains(line, "%") {
+					progressChan <- fmt.Sprintf("Downloading: %s", line)
+				}
+			case strings.Contains(line, "[ExtractAudio]"):
+				progressChan <- "Converting to MP3..."
+			case strings.Contains(line, "[Metadata]"):
+				progressChan <- "Adding metadata..."
+			case strings.Contains(line, "Adding metadata to"):
+				// This is the last line we see before completion
+				progressChan <- "Finalizing..."
+			}
+		}
+	}()
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%w: %v", ErrConversion, err)
+	}
+
+	// After yt-dlp finishes, proceed with file processing
+	progressChan <- "Moving files to final location..."
+
+	// Move files to their respective directories
+	files, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return fmt.Errorf("failed to read temp directory: %w", err)
+	}
+
+	for _, file := range files {
+		src := filepath.Join(tmpDir, file.Name())
+		var dst string
+
+		switch {
+		case strings.HasSuffix(file.Name(), ".mp3"):
+			dst = filepath.Join("mp3s", safeTitle+".mp3")
+			progressChan <- "Saving MP3 file..."
+		case strings.HasSuffix(file.Name(), ".info.json"):
+			dst = filepath.Join("metadata", safeTitle+".info.json")
+		case strings.HasSuffix(file.Name(), ".description"):
+			dst = filepath.Join("metadata", safeTitle+".description")
+		default:
+			continue
+		}
+
+		if err := os.Rename(src, dst); err != nil {
+			log.Printf("Failed to move file %s: %v", file.Name(), err)
+		}
+	}
+
+	// Log completion for debugging
+	log.Println("Conversion process completed successfully")
+
+	// Send final completion message
+	progressChan <- "Conversion complete!"
 	return nil
 }
 
@@ -263,8 +429,8 @@ func getEpisodes() ([]Episode, error) {
 		}
 
 		baseName := strings.TrimSuffix(f.Name(), ".mp3")
-		jsonPath := filepath.Join("mp3s", baseName+".info.json")
-		descPath := filepath.Join("mp3s", baseName+".description")
+		jsonPath := filepath.Join("metadata", baseName+".info.json")
+		descPath := filepath.Join("metadata", baseName+".description")
 
 		episode := Episode{
 			Title:   baseName,
