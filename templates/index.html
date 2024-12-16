@@ -10,6 +10,21 @@
             margin: 0 auto;
             padding: 20px;
         }
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .alert.error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+        }
+        .alert.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #c8e6c9;
+        }
         .form-container {
             margin: 20px 0;
             padding: 20px;
@@ -36,8 +51,44 @@
             margin-top: 30px;
         }
         .episode {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .metadata {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .metadata span {
+            margin-right: 15px;
+        }
+        .description {
+            margin-top: 15px;
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .description pre {
+            white-space: pre-wrap;
+            font-family: inherit;
+            margin: 0;
+        }
+        .chapters {
+            margin-top: 15px;
+        }
+        .chapters ul {
+            list-style: none;
+            padding: 0;
+        }
+        .chapters li {
+            margin: 5px 0;
+        }
+        .timestamp {
+            font-family: monospace;
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 2px;
         }
         .feed-url {
             margin: 20px 0;
@@ -50,6 +101,18 @@
 </head>
 <body>
     <h1>YouTube to Podcast Converter</h1>
+
+    {{if .Message}}
+    <div class="alert success">
+        {{.Message}}
+    </div>
+    {{end}}
+
+    {{if .Error}}
+    <div class="alert error">
+        {{.Error}}
+    </div>
+    {{end}}
 
     <div class="form-container">
         <form action="/convert" method="POST">
@@ -69,12 +132,33 @@
         {{range .Episodes}}
         <div class="episode">
             <h3>{{.Title}}</h3>
-            <p>Duration: {{.Duration}}</p>
-            <p>Added: {{.PubDate}}</p>
+            <div class="metadata">
+                <span>Duration: {{.Duration}}</span>
+                {{if .Uploader}}<span>Uploader: {{.Uploader}}</span>{{end}}
+                <span>Added: {{.PubDate}}</span>
+            </div>
             <audio controls>
                 <source src="/mp3s/{{.File}}" type="audio/mpeg">
                 Your browser does not support the audio element.
             </audio>
+
+            {{if .Description}}
+            <div class="description">
+                <h4>Description</h4>
+                <pre>{{.Description}}</pre>
+            </div>
+            {{end}}
+
+            {{if .Chapters}}
+            <div class="chapters">
+                <h4>Chapters</h4>
+                <ul>
+                    {{range .Chapters}}
+                    <li><span class="timestamp">{{formatDuration .StartTime}}</span> - {{.Title}}</li>
+                    {{end}}
+                </ul>
+            </div>
+            {{end}}
         </div>
         {{end}}
     </div>
