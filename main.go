@@ -2,12 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
-	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -17,28 +13,12 @@ import (
 	"time"
 )
 
-type VideoMetadata struct {
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Uploader    string    `json:"uploader"`
-	Duration    float64   `json:"duration"`
-	Chapters    []Chapter `json:"chapters"`
-}
-
-type Chapter struct {
-	StartTime float64 `json:"start_time"`
-	Title     string  `json:"title"`
-}
-
 type Episode struct {
-	Title       string
-	File        string
-	Description string
-	Uploader    string
-	PubDate     string
-	Duration    string
-	Size        int64
-	Chapters    []Chapter
+	Title    string
+	File     string
+	PubDate  string
+	Duration string
+	Size     int64
 }
 
 type PageData struct {
@@ -47,27 +27,14 @@ type PageData struct {
 	Episodes []Episode
 }
 
-var (
-	ErrInvalidURL    = errors.New("invalid or empty URL provided")
-	ErrConversion    = errors.New("failed to convert video")
-	ErrMissingYTDLP  = errors.New("yt-dlp is not installed")
-	ErrMissingFFmpeg = errors.New("ffmpeg is not installed")
-)
-
 func main() {
-	if err := checkDependencies(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Create required directories
-	for _, dir := range []string{"mp3s", "metadata"} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Fatalf("Failed to create directory %s: %v", dir, err)
-		}
+	// Create mp3s directory if it doesn't exist
+	if err := os.MkdirAll("mp3s", 0755); err != nil {
+		log.Fatal("Failed to create mp3s directory:", err)
 	}
 
 	// Setup progress channel for conversion updates
-	progressChan := make(chan string, 100)
+	progressChan := make(chan string, 10)
 	defer close(progressChan)
 
 	// Setup HTTP server
@@ -80,32 +47,10 @@ func main() {
 	mux.HandleFunc("/feed", handleRSS)
 	mux.Handle("/mp3s/", http.StripPrefix("/mp3s/", http.FileServer(http.Dir("mp3s"))))
 
-	server := &http.Server{
-		Addr:         ":8080",
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
 	log.Println("Server starting at http://localhost:8080")
-	if err := server.ListenAndServe(); err != nil {
+	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func checkDependencies() error {
-	// Check for yt-dlp
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return fmt.Errorf("%w: %v", ErrMissingYTDLP, err)
-	}
-
-	// Check for ffmpeg
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return fmt.Errorf("%w: %v", ErrMissingFFmpeg, err)
-	}
-
-	return nil
 }
 
 func handleHome(w http.ResponseWriter, r *http.Request) {
@@ -114,25 +59,14 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	funcMap := template.FuncMap{
-		"formatDuration": func(seconds float64) string {
-			hours := int(seconds) / 3600
-			minutes := (int(seconds) % 3600) / 60
-			secs := int(seconds) % 60
-			return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
-		},
-	}
-
-	tmpl, err := template.New("index.html").Funcs(funcMap).ParseFiles("templates/index.html")
+	tmpl, err := template.ParseFiles("templates/index.html")
 	if err != nil {
-		log.Printf("Template parsing error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	episodes, err := getEpisodes()
 	if err != nil {
-		log.Printf("Error getting episodes: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -144,14 +78,12 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("Template execution error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
 func handleProgress(progressChan <-chan string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Set headers for SSE
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -163,7 +95,6 @@ func handleProgress(progressChan <-chan string) http.HandlerFunc {
 			return
 		}
 
-		// Create a channel for disconnect detection
 		notify := r.Context().Done()
 
 		for {
@@ -175,7 +106,6 @@ func handleProgress(progressChan <-chan string) http.HandlerFunc {
 				fmt.Fprintf(w, "data: %s\n\n", msg)
 				flusher.Flush()
 			case <-notify:
-				// Client disconnected
 				return
 			}
 		}
@@ -190,72 +120,23 @@ func handleConvert(w http.ResponseWriter, r *http.Request, progressChan chan<- s
 
 	youtubeURL := r.FormValue("url")
 	if youtubeURL == "" {
-		http.Redirect(w, r, "/?error="+ErrInvalidURL.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/?error=No URL provided", http.StatusSeeOther)
 		return
 	}
 
-	// Create a new channel specifically for this conversion
-	conversionProgress := make(chan string, 100)
-
-	// Start conversion in a goroutine
 	go func() {
-		if err := convertVideo(youtubeURL, conversionProgress); err != nil {
-			// Send error through progress channel
-			conversionProgress <- "Error: " + err.Error()
+		if err := convertVideo(youtubeURL, progressChan); err != nil {
+			progressChan <- "Error: " + err.Error()
+			return
 		}
-		close(conversionProgress)
-	}()
-
-	// Forward messages from conversion to the main progress channel
-	go func() {
-		for msg := range conversionProgress {
-			progressChan <- msg
-			if msg == "Conversion complete!" {
-				// Add a small delay before redirecting
-				time.Sleep(500 * time.Millisecond)
-				progressChan <- "DONE" // Special message to trigger redirect
-			}
-		}
+		progressChan <- "Conversion complete!"
+		progressChan <- "DONE"
 	}()
 
 	http.Redirect(w, r, "/?message=Conversion started", http.StatusSeeOther)
 }
 
-// Update the convertVideo function to improve progress reporting
 func convertVideo(youtubeURL string, progressChan chan<- string) error {
-	// First, download metadata to get the title
-	progressChan <- "Fetching video metadata..."
-	tmpDir, err := os.MkdirTemp("", "yt-dl-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	metadataCmd := exec.Command("yt-dlp",
-		"--dump-json",
-		"--no-download",
-		youtubeURL)
-
-	metadataOutput, err := metadataCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to fetch metadata: %w", err)
-	}
-
-	var metadata struct {
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal(metadataOutput, &metadata); err != nil {
-		return fmt.Errorf("failed to parse metadata: %w", err)
-	}
-
-	// Sanitize filename
-	safeTitle := strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
-			return '-'
-		}
-		return r
-	}, metadata.Title)
-
 	progressChan <- "Starting download..."
 
 	cmd := exec.Command("yt-dlp",
@@ -263,92 +144,41 @@ func convertVideo(youtubeURL string, progressChan chan<- string) error {
 		"--audio-format", "mp3",
 		"--audio-quality", "320",
 		"--embed-metadata",
-		"--add-metadata",
-		"--embed-chapters",
-		"--write-info-json",
-		"--write-description",
-		"--output", filepath.Join(tmpDir, "%(title)s.%(ext)s"),
-		"--progress",
+		"--output", "mp3s/%(title)s.%(ext)s",
 		youtubeURL)
 
-	// Create pipes for stdout and stderr
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("%w: %v", ErrConversion, err)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 
-	// Monitor progress output
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start download: %v", err)
+	}
+
 	go func() {
-		scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			log.Println(line) // Keep logging all lines
-
-			// Send progress updates for download and conversion
 			switch {
 			case strings.Contains(line, "[download]"):
-				if strings.Contains(line, "%") {
-					progressChan <- fmt.Sprintf("Downloading: %s", line)
-				}
+				progressChan <- "Downloading..."
 			case strings.Contains(line, "[ExtractAudio]"):
 				progressChan <- "Converting to MP3..."
-			case strings.Contains(line, "[Metadata]"):
-				progressChan <- "Adding metadata..."
-			case strings.Contains(line, "Adding metadata to"):
-				// This is the last line we see before completion
-				progressChan <- "Finalizing..."
 			}
 		}
 	}()
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("%w: %v", ErrConversion, err)
+		return fmt.Errorf("conversion failed: %v", err)
 	}
 
-	// After yt-dlp finishes, proceed with file processing
-	progressChan <- "Moving files to final location..."
-
-	// Move files to their respective directories
-	files, err := os.ReadDir(tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to read temp directory: %w", err)
-	}
-
-	for _, file := range files {
-		src := filepath.Join(tmpDir, file.Name())
-		var dst string
-
-		switch {
-		case strings.HasSuffix(file.Name(), ".mp3"):
-			dst = filepath.Join("mp3s", safeTitle+".mp3")
-			progressChan <- "Saving MP3 file..."
-		case strings.HasSuffix(file.Name(), ".info.json"):
-			dst = filepath.Join("metadata", safeTitle+".info.json")
-		case strings.HasSuffix(file.Name(), ".description"):
-			dst = filepath.Join("metadata", safeTitle+".description")
-		default:
-			continue
-		}
-
-		if err := os.Rename(src, dst); err != nil {
-			log.Printf("Failed to move file %s: %v", file.Name(), err)
-		}
-	}
-
-	// Log completion for debugging
-	log.Println("Conversion process completed successfully")
-
-	// Send final completion message
-	progressChan <- "Conversion complete!"
 	return nil
 }
 
 func handleRSS(w http.ResponseWriter, r *http.Request) {
 	episodes, err := getEpisodes()
 	if err != nil {
-		log.Printf("Error getting episodes for RSS: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -357,16 +187,13 @@ func handleRSS(w http.ResponseWriter, r *http.Request) {
 	rss := generateRSSFeed(host, episodes)
 
 	w.Header().Set("Content-Type", "application/xml")
-	if _, err := fmt.Fprint(w, rss); err != nil {
-		log.Printf("Error writing RSS response: %v", err)
-	}
+	fmt.Fprint(w, rss)
 }
 
 func generateRSSFeed(host string, episodes []Episode) string {
 	rss := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
     <rss version="2.0"
-         xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
-         xmlns:content="http://purl.org/rss/1.0/modules/content/">
+         xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
         <channel>
             <title>YouTube Downloads</title>
             <link>http://%s</link>
@@ -374,35 +201,15 @@ func generateRSSFeed(host string, episodes []Episode) string {
             <language>en-us</language>`, host)
 
 	for _, episode := range episodes {
-		// Create chapter markers in description if available
-		chapterText := ""
-		if len(episode.Chapters) > 0 {
-			chapterText = "\n\nChapters:\n"
-			for _, chapter := range episode.Chapters {
-				chapterText += fmt.Sprintf("%s - %s\n",
-					formatDuration(chapter.StartTime),
-					chapter.Title)
-			}
-		}
-
-		// Combine description and chapters
-		fullDescription := episode.Description + chapterText
-
 		rss += fmt.Sprintf(`
             <item>
                 <title>%s</title>
-                <itunes:author>%s</itunes:author>
-                <description><![CDATA[%s]]></description>
-                <content:encoded><![CDATA[%s]]></content:encoded>
                 <enclosure url="http://%s/mp3s/%s" length="%d" type="audio/mpeg"/>
                 <guid>http://%s/mp3s/%s</guid>
                 <pubDate>%s</pubDate>
                 <itunes:duration>%s</itunes:duration>
             </item>`,
 			episode.Title,
-			episode.Uploader,
-			fullDescription,
-			fullDescription,
 			host, episode.File, episode.Size,
 			host, episode.File,
 			episode.PubDate,
@@ -417,9 +224,9 @@ func generateRSSFeed(host string, episodes []Episode) string {
 }
 
 func getEpisodes() ([]Episode, error) {
-	files, err := ioutil.ReadDir("mp3s")
+	files, err := os.ReadDir("mp3s")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read mp3s directory: %w", err)
+		return nil, fmt.Errorf("failed to read mp3s directory: %v", err)
 	}
 
 	var episodes []Episode
@@ -428,65 +235,26 @@ func getEpisodes() ([]Episode, error) {
 			continue
 		}
 
-		baseName := strings.TrimSuffix(f.Name(), ".mp3")
-		jsonPath := filepath.Join("metadata", baseName+".info.json")
-		descPath := filepath.Join("metadata", baseName+".description")
-
-		episode := Episode{
-			Title:   baseName,
-			File:    f.Name(),
-			PubDate: f.ModTime().Format(time.RFC1123Z),
-			Size:    f.Size(),
+		info, err := f.Info()
+		if err != nil {
+			continue
 		}
 
-		// Try to load metadata from JSON
-		if metadata, err := loadMetadata(jsonPath); err == nil {
-			episode.Duration = formatDuration(metadata.Duration)
-			episode.Uploader = metadata.Uploader
-			episode.Chapters = metadata.Chapters
-			episode.Description = metadata.Description
-		} else {
-			// Fallback to ffprobe for duration
-			if duration, err := getAudioDuration(filepath.Join("mp3s", f.Name())); err == nil {
-				episode.Duration = duration
-			} else {
-				episode.Duration = "Unknown"
-			}
+		duration, _ := getAudioDuration(filepath.Join("mp3s", f.Name()))
+		if duration == "" {
+			duration = "Unknown"
 		}
 
-		// Try to load description from separate file if not in metadata
-		if episode.Description == "" {
-			if desc, err := ioutil.ReadFile(descPath); err == nil {
-				episode.Description = string(desc)
-			}
-		}
-
-		episodes = append(episodes, episode)
+		episodes = append(episodes, Episode{
+			Title:    strings.TrimSuffix(f.Name(), ".mp3"),
+			File:     f.Name(),
+			PubDate:  info.ModTime().Format(time.RFC1123Z),
+			Duration: duration,
+			Size:     info.Size(),
+		})
 	}
 
 	return episodes, nil
-}
-
-func formatDuration(seconds float64) string {
-	hours := int(seconds) / 3600
-	minutes := (int(seconds) % 3600) / 60
-	secs := int(seconds) % 60
-
-	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
-}
-
-func loadMetadata(path string) (*VideoMetadata, error) {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var metadata VideoMetadata
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return nil, err
-	}
-
-	return &metadata, nil
 }
 
 func getAudioDuration(filepath string) (string, error) {
@@ -498,10 +266,9 @@ func getAudioDuration(filepath string) (string, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to get audio duration: %w", err)
+		return "", err
 	}
 
-	// Parse duration from output
 	var seconds float64
 	fmt.Sscanf(string(output), "%f", &seconds)
 

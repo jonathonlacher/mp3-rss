@@ -47,9 +47,6 @@
             background-color: #cccccc;
             cursor: not-allowed;
         }
-        button:hover:not(:disabled) {
-            background-color: #45a049;
-        }
         .episodes {
             margin-top: 30px;
         }
@@ -66,32 +63,12 @@
         .metadata span {
             margin-right: 15px;
         }
-        .description {
+        .progress-container {
             margin-top: 15px;
-            background: #f5f5f5;
             padding: 15px;
+            background: #f5f5f5;
             border-radius: 4px;
-        }
-        .description pre {
-            white-space: pre-wrap;
-            font-family: inherit;
-            margin: 0;
-        }
-        .chapters {
-            margin-top: 15px;
-        }
-        .chapters ul {
-            list-style: none;
-            padding: 0;
-        }
-        .chapters li {
-            margin: 5px 0;
-        }
-        .timestamp {
-            font-family: monospace;
-            background: #eee;
-            padding: 2px 4px;
-            border-radius: 2px;
+            display: none;
         }
         .feed-url {
             margin: 20px 0;
@@ -99,39 +76,6 @@
             background-color: #f8f8f8;
             border: 1px solid #ddd;
             border-radius: 4px;
-        }
-        .progress-container {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f5f5f5;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-        .progress-text {
-            margin-bottom: 10px;
-            font-family: monospace;
-        }
-        .progress-status {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 5px;
-        }
-        .spinner {
-            width: 24px;
-            height: 24px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .complete {
-            background-color: #e8f5e9;
-            border-color: #c8e6c9;
         }
     </style>
 </head>
@@ -155,9 +99,8 @@
             <input type="text" name="url" placeholder="Enter YouTube URL" required>
             <button type="submit">Convert to MP3</button>
         </form>
-        <div id="progress" class="progress-container" style="display: none;">
+        <div id="progress" class="progress-container">
             <div class="progress-text"></div>
-            <div class="spinner"></div>
         </div>
     </div>
 
@@ -174,38 +117,17 @@
             <h3>{{.Title}}</h3>
             <div class="metadata">
                 <span>Duration: {{.Duration}}</span>
-                {{if .Uploader}}<span>Uploader: {{.Uploader}}</span>{{end}}
                 <span>Added: {{.PubDate}}</span>
             </div>
             <audio controls>
                 <source src="/mp3s/{{.File}}" type="audio/mpeg">
                 Your browser does not support the audio element.
             </audio>
-
-            {{if .Description}}
-            <div class="description">
-                <h4>Description</h4>
-                <pre>{{.Description}}</pre>
-            </div>
-            {{end}}
-
-            {{if .Chapters}}
-            <div class="chapters">
-                <h4>Chapters</h4>
-                <ul>
-                    {{range .Chapters}}
-                    <li><span class="timestamp">{{formatDuration .StartTime}}</span> - {{.Title}}</li>
-                    {{end}}
-                </ul>
-            </div>
-            {{end}}
         </div>
         {{end}}
     </div>
 
     <script>
-        // Handle form submission and progress updates
-        // Update the event handler in your index.html script section
         document.getElementById('convertForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const form = this;
@@ -213,27 +135,21 @@
             const progressText = progressDiv.querySelector('.progress-text');
             const submitButton = form.querySelector('button');
 
-            // Reset and show progress container
-            progressDiv.classList.remove('complete');
             progressDiv.style.display = 'block';
             submitButton.disabled = true;
 
-            // Submit form
             fetch(form.action, {
                 method: 'POST',
                 body: new FormData(form)
             }).catch(error => {
-                console.error('Form submission error:', error);
-                progressText.textContent = 'Error starting conversion. Please try again.';
+                progressText.textContent = 'Error starting conversion';
                 submitButton.disabled = false;
             });
 
-            // Connect to SSE for progress updates
             const evtSource = new EventSource('/progress');
 
             evtSource.onmessage = function(event) {
                 const message = event.data;
-                console.log('Progress update:', message); // Debug log
 
                 if (message === 'DONE') {
                     evtSource.close();
@@ -243,34 +159,22 @@
 
                 progressText.textContent = message;
 
-                if (message === 'Conversion complete!') {
-                    progressDiv.classList.add('complete');
-                    submitButton.disabled = false;
-                } else if (message.startsWith('Error:')) {
-                    progressDiv.classList.add('error');
+                if (message === 'Conversion complete!' || message.startsWith('Error:')) {
                     submitButton.disabled = false;
                     evtSource.close();
                 }
             };
 
-            evtSource.onerror = function(err) {
-                console.error('EventSource error:', err);
-                if (progressText.textContent === 'Conversion complete!') {
-                    // If we got the completion message, just reload
-                    window.location.reload();
-                } else {
-                    progressText.textContent = 'Error: Connection lost. Please check the downloads page for your file.';
-                    submitButton.disabled = false;
-                    evtSource.close();
-                }
+            evtSource.onerror = function() {
+                progressText.textContent = 'Connection lost. Check downloads page for your file.';
+                submitButton.disabled = false;
+                evtSource.close();
             };
         });
 
-        // Set the feed URL
         const feedUrl = window.location.protocol + '//' + window.location.host + '/feed';
         document.getElementById('feedUrl').textContent = feedUrl;
 
-        // Function to copy feed URL
         function copyFeedUrl() {
             navigator.clipboard.writeText(feedUrl)
                 .then(() => alert('Feed URL copied to clipboard!'))
