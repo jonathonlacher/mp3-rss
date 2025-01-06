@@ -8,13 +8,8 @@ A simple web application that converts YouTube videos to MP3s and serves them vi
 - Web interface for easy conversion
 - RSS feed for podcast apps
 - Progress tracking during conversion
-- Accessible via Tailscale private network
 
 ## Prerequisites
-
-On your development machine (Mac):
-- Go 1.21+
-- Git
 
 On the VM:
 - Ubuntu/Debian
@@ -27,43 +22,30 @@ On the VM:
 
     ```bash
     # Copy the setup script to VM
-    scp setup.sh root@VM_IP:
+    scp scripts/setup.sh root@<VM_IP>:
 
     # SSH to VM and run setup
-    ssh root@VM_IP "bash setup.sh"
+    ssh root@<VM_IP> "bash setup.sh"
     ```
 
-This installs required dependencies:
-- ffmpeg
-- python3-pip
-- yt-dlp
-- Creates necessary directories
+    This installs required dependencies:
+    - ffmpeg
+    - python3-pip
+    - yt-dlp
+    - Creates necessary directories
 
-2. Edit the deployment script:
+2. Edit your `.env`:
 
-    ```bash
-    # Edit deploy.sh and set your VM's Tailscale IP
-    VM_IP="your-vm-tailscale-ip"
+    ```env
+    VM_IP="vm-ips"
     ```
-
-## Development
-
-The project structure:
-```
-.
-├── main.go
-├── templates/
-│   └── index.html
-├── setup.sh
-└── deploy.sh
-```
 
 ## Deployment
 
 From your Mac, just run:
 
 ```bash
-./deploy.sh
+./scripts/deploy.sh
 ```
 
 This will:
@@ -78,7 +60,7 @@ This will:
 1. Access the web interface:
 
     ```text
-    http://VM_TAILSCALE_IP:8080
+    http://<IP>:8080
     ```
 
 2. Enter a YouTube URL and click Convert
@@ -94,17 +76,6 @@ This will:
     ssh root@VM_IP "pip3 install -U yt-dlp"
     ```
 
-## Directory Structure on VM
-
-```text
-/opt/youtube-podcast/
-├── youtube-podcast (binary)
-├── templates/
-│   └── index.html
-└── mp3s/
-    └── (downloaded files)
-```
-
 ## Troubleshooting
 
 - Check systemd service status:
@@ -118,9 +89,3 @@ This will:
   ```bash
   ssh root@VM_IP "journalctl -u youtube-podcast -f"
   ```
-
-## Notes
-
-- The application is only accessible via Tailscale
-- MP3s are stored locally on the VM
-- No authentication is implemented - secure via Tailscale network only

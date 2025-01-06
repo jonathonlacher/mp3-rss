@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -14,11 +15,15 @@ import (
 )
 
 type Episode struct {
-	Title    string
-	File     string
-	PubDate  string
-	Duration string
-	Size     int64
+	Title      string
+	File       string
+	PubDate    string
+	Duration   string
+	Size       int64
+	BitRate    string
+	Channels   string
+	SampleRate string
+	Metadata   map[string]string
 }
 
 type PageData struct {
@@ -33,6 +38,11 @@ func main() {
 		log.Fatal("Failed to create mp3s directory:", err)
 	}
 
+	// Create cover directory for artwork if it doesn't exist
+	if err := os.MkdirAll("cover", 0755); err != nil {
+		log.Fatal("Failed to create cover directory:", err)
+	}
+
 	// Setup progress channel for conversion updates
 	progressChan := make(chan string, 10)
 	defer close(progressChan)
@@ -45,11 +55,20 @@ func main() {
 	})
 	mux.HandleFunc("/progress", handleProgress(progressChan))
 	mux.HandleFunc("/feed", handleRSS)
-	mux.Handle("/mp3s/", http.StripPrefix("/mp3s/", http.FileServer(http.Dir("mp3s"))))
+	mux.Handle("/mp3s/", http.StripPrefix("/mp3s/", serveMp3Files()))
+	mux.Handle("/cover/", http.StripPrefix("/cover/", http.FileServer(http.Dir("cover"))))
 
 	log.Println("Server starting at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func serveMp3Files() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Type", "audio/mpeg")
+		http.FileServer(http.Dir("mp3s")).ServeHTTP(w, r)
 	}
 }
 
@@ -144,6 +163,9 @@ func convertVideo(youtubeURL string, progressChan chan<- string) error {
 		"--audio-format", "mp3",
 		"--audio-quality", "320",
 		"--embed-metadata",
+		"--embed-thumbnail",
+		"--write-thumbnail",
+		"--write-info-json",
 		"--output", "mp3s/%(title)s.%(ext)s",
 		youtubeURL)
 
@@ -165,6 +187,8 @@ func convertVideo(youtubeURL string, progressChan chan<- string) error {
 				progressChan <- "Downloading..."
 			case strings.Contains(line, "[ExtractAudio]"):
 				progressChan <- "Converting to MP3..."
+			case strings.Contains(line, "[ThumbnailsConvertor]"):
+				progressChan <- "Extracting thumbnail..."
 			}
 		}
 	}()
@@ -192,28 +216,59 @@ func handleRSS(w http.ResponseWriter, r *http.Request) {
 
 func generateRSSFeed(host string, episodes []Episode) string {
 	rss := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-    <rss version="2.0"
-         xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+    <rss version="2.0" 
+         xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+         xmlns:atom="http://www.w3.org/2005/Atom"
+         xmlns:content="http://purl.org/rss/1.0/modules/content/"
+         xmlns:media="http://search.yahoo.com/mrss/"
+         xmlns:psc="http://podlove.org/simple-chapters">
         <channel>
             <title>YouTube Downloads</title>
-            <link>http://%s</link>
+            <link>http://%[1]s</link>
+            <atom:link href="http://%[1]s/feed" rel="self" type="application/rss+xml" />
             <description>YouTube videos converted to MP3</description>
-            <language>en-us</language>`, host)
+            <language>en-us</language>
+            <itunes:author>YouTube Downloads</itunes:author>
+            <itunes:type>episodic</itunes:type>
+            <itunes:category text="Technology"/>`, host)
 
 	for _, episode := range episodes {
 		rss += fmt.Sprintf(`
             <item>
                 <title>%s</title>
-                <enclosure url="http://%s/mp3s/%s" length="%d" type="audio/mpeg"/>
-                <guid>http://%s/mp3s/%s</guid>
+                <enclosure url="http://%s/mp3s/%s" 
+                          length="%d" 
+                          type="audio/mpeg"/>
+                <link>http://%s/mp3s/%s</link>
+                <guid isPermaLink="true">http://%s/mp3s/%s</guid>
                 <pubDate>%s</pubDate>
                 <itunes:duration>%s</itunes:duration>
+                <itunes:explicit>no</itunes:explicit>
+                <itunes:episodeType>full</itunes:episodeType>
+                <description>Audio file converted from YouTube</description>
+                <media:content url="http://%s/mp3s/%s" 
+                             fileSize="%d" 
+                             type="audio/mpeg" 
+                             duration="%s"/>
+                <content:encoded>
+                    <![CDATA[
+                    Audio Details:<br/>
+                    Bit Rate: %s<br/>
+                    Channels: %s<br/>
+                    Sample Rate: %s
+                    ]]>
+                </content:encoded>
             </item>`,
 			episode.Title,
 			host, episode.File, episode.Size,
 			host, episode.File,
+			host, episode.File,
 			episode.PubDate,
-			episode.Duration)
+			episode.Duration,
+			host, episode.File, episode.Size, episode.Duration,
+			episode.BitRate,
+			episode.Channels,
+			episode.SampleRate)
 	}
 
 	rss += `
@@ -221,6 +276,76 @@ func generateRSSFeed(host string, episodes []Episode) string {
     </rss>`
 
 	return rss
+}
+
+func getAudioMetadata(filepath string) (map[string]string, error) {
+	cmd := exec.Command("ffprobe",
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		filepath)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var data struct {
+		Streams []struct {
+			CodecType  string `json:"codec_type"`
+			BitRate    string `json:"bit_rate"`
+			Channels   int    `json:"channels"`
+			SampleRate string `json:"sample_rate"`
+		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+			BitRate  string `json:"bit_rate"`
+		} `json:"format"`
+	}
+
+	if err := json.Unmarshal(output, &data); err != nil {
+		return nil, err
+	}
+
+	metadata := make(map[string]string)
+	metadata["duration"] = data.Format.Duration
+	metadata["bit_rate"] = data.Format.BitRate
+
+	// Look for audio stream
+	for _, stream := range data.Streams {
+		if stream.CodecType == "audio" {
+			if stream.BitRate != "" {
+				metadata["bit_rate"] = stream.BitRate
+			}
+			metadata["channels"] = fmt.Sprintf("%d", stream.Channels)
+			metadata["sample_rate"] = stream.SampleRate
+			break
+		}
+	}
+
+	return metadata, nil
+}
+
+func getAudioDuration(filepath string) (string, error) {
+	metadata, err := getAudioMetadata(filepath)
+	if err != nil {
+		return "", err
+	}
+
+	duration, ok := metadata["duration"]
+	if !ok {
+		return "", fmt.Errorf("no duration found in metadata")
+	}
+
+	var seconds float64
+	fmt.Sscanf(duration, "%f", &seconds)
+
+	hours := int(seconds) / 3600
+	minutes := (int(seconds) % 3600) / 60
+	secs := int(seconds) % 60
+
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs), nil
 }
 
 func getEpisodes() ([]Episode, error) {
@@ -240,41 +365,33 @@ func getEpisodes() ([]Episode, error) {
 			continue
 		}
 
-		duration, _ := getAudioDuration(filepath.Join("mp3s", f.Name()))
+		filepath := filepath.Join("mp3s", f.Name())
+		metadata, err := getAudioMetadata(filepath)
+		if err != nil {
+			log.Printf("Warning: Could not get metadata for %s: %v", f.Name(), err)
+		}
+
+		duration, _ := getAudioDuration(filepath)
 		if duration == "" {
 			duration = "Unknown"
 		}
 
-		episodes = append(episodes, Episode{
+		episode := Episode{
 			Title:    strings.TrimSuffix(f.Name(), ".mp3"),
 			File:     f.Name(),
 			PubDate:  info.ModTime().Format(time.RFC1123Z),
 			Duration: duration,
 			Size:     info.Size(),
-		})
+		}
+
+		if metadata != nil {
+			episode.BitRate = metadata["bit_rate"]
+			episode.Channels = metadata["channels"]
+			episode.SampleRate = metadata["sample_rate"]
+		}
+
+		episodes = append(episodes, episode)
 	}
 
 	return episodes, nil
-}
-
-func getAudioDuration(filepath string) (string, error) {
-	cmd := exec.Command("ffprobe",
-		"-v", "quiet",
-		"-show_entries", "format=duration",
-		"-of", "default=noprint_wrappers=1:nokey=1",
-		filepath)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-
-	var seconds float64
-	fmt.Sscanf(string(output), "%f", &seconds)
-
-	hours := int(seconds) / 3600
-	minutes := (int(seconds) % 3600) / 60
-	secs := int(seconds) % 60
-
-	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs), nil
 }
