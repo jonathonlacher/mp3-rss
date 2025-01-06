@@ -23,7 +23,6 @@ type Episode struct {
 	BitRate    string
 	Channels   string
 	SampleRate string
-	Metadata   map[string]string
 }
 
 type PageData struct {
@@ -36,11 +35,6 @@ func main() {
 	// Create mp3s directory if it doesn't exist
 	if err := os.MkdirAll("mp3s", 0755); err != nil {
 		log.Fatal("Failed to create mp3s directory:", err)
-	}
-
-	// Create cover directory for artwork if it doesn't exist
-	if err := os.MkdirAll("cover", 0755); err != nil {
-		log.Fatal("Failed to create cover directory:", err)
 	}
 
 	// Setup progress channel for conversion updates
@@ -56,7 +50,6 @@ func main() {
 	mux.HandleFunc("/progress", handleProgress(progressChan))
 	mux.HandleFunc("/feed", handleRSS)
 	mux.Handle("/mp3s/", http.StripPrefix("/mp3s/", serveMp3Files()))
-	mux.Handle("/cover/", http.StripPrefix("/cover/", http.FileServer(http.Dir("cover"))))
 
 	log.Println("Server starting at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
@@ -164,8 +157,6 @@ func convertVideo(youtubeURL string, progressChan chan<- string) error {
 		"--audio-quality", "320",
 		"--embed-metadata",
 		"--embed-thumbnail",
-		"--write-thumbnail",
-		"--write-info-json",
 		"--output", "mp3s/%(title)s.%(ext)s",
 		youtubeURL)
 
@@ -220,8 +211,7 @@ func generateRSSFeed(host string, episodes []Episode) string {
          xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
          xmlns:atom="http://www.w3.org/2005/Atom"
          xmlns:content="http://purl.org/rss/1.0/modules/content/"
-         xmlns:media="http://search.yahoo.com/mrss/"
-         xmlns:psc="http://podlove.org/simple-chapters">
+         xmlns:media="http://search.yahoo.com/mrss/">
         <channel>
             <title>YouTube Downloads</title>
             <link>http://%[1]s</link>
