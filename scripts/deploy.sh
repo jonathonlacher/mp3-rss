@@ -26,19 +26,19 @@ GOOS=linux GOARCH=amd64 go build -o youtube-podcast
 
 # First copy to /tmp
 echo "Copying binary to /tmp first..."
-scp youtube-podcast root@$VM_IP:/tmp/
+scp youtube-podcast root@"$VM_IP":/tmp/
 
 # Then move it to final location
 echo "Moving binary to final location..."
-ssh root@$VM_IP "mv /tmp/youtube-podcast $APP_DIR/ && chmod 755 $APP_DIR/youtube-podcast"
+ssh root@"$VM_IP" "mv /tmp/youtube-podcast $APP_DIR/ && chmod 755 $APP_DIR/youtube-podcast"
 
 # Copy template
 echo "Copying template..."
-scp templates/index.html root@$VM_IP:$APP_DIR/templates/
+scp templates/index.html root@"$VM_IP":"$APP_DIR"/templates/
 
 # Setup systemd service
 echo "Setting up systemd service..."
-ssh root@$VM_IP "cat > /etc/systemd/system/youtube-podcast.service << 'EOL'
+ssh root@"$VM_IP" "cat > /etc/systemd/system/youtube-podcast.service << 'EOL'
 [Unit]
 Description=YouTube to Podcast Converter
 After=network.target
@@ -58,9 +58,9 @@ systemctl daemon-reload && systemctl enable youtube-podcast"
 
 # Restart service
 echo "Restarting service..."
-ssh root@$VM_IP "systemctl restart youtube-podcast"
+ssh root@"$VM_IP" "systemctl restart youtube-podcast"
 
 echo "Checking service status..."
-ssh root@$VM_IP "systemctl status youtube-podcast"
+ssh root@"$VM_IP" "systemctl status youtube-podcast"
 
 echo "Deployment complete!"

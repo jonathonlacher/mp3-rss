@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on any error
+set -e
+
 # Update and install dependencies
 apt update && apt upgrade -y
 apt install -y ffmpeg python3-pip python3-venv pipx

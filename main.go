@@ -113,11 +113,14 @@ func handleProgress(progressChan <-chan string) http.HandlerFunc {
 			select {
 			case msg, ok := <-progressChan:
 				if !ok {
+					// Channel closed; exit the handler
 					return
 				}
+				// Send progress updates to the client
 				fmt.Fprintf(w, "data: %s\n\n", msg)
 				flusher.Flush()
 			case <-notify:
+				// Client disconnected; exit the handler
 				return
 			}
 		}
@@ -136,9 +139,11 @@ func handleConvert(w http.ResponseWriter, r *http.Request, progressChan chan<- s
 		return
 	}
 
+	// Start the conversion in a goroutine
 	go func() {
 		if err := convertVideo(youtubeURL, progressChan); err != nil {
-			progressChan <- "Error: " + err.Error()
+			progressChan <- fmt.Sprintf("Error: %v", err)
+			log.Println(err) // Log the error for debugging
 			return
 		}
 		progressChan <- "Conversion complete!"
@@ -160,34 +165,52 @@ func convertVideo(youtubeURL string, progressChan chan<- string) error {
 		"--output", "mp3s/%(title)s.%(ext)s",
 		youtubeURL)
 
+	// Create pipes for stdout and stderr
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %v", err)
 	}
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+
+	// Start the command
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start download: %v", err)
 	}
+
+	// Capture stdout and stderr concurrently
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			progressChan <- line // Send stdout lines to the UI
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("Error reading stdout: %v", err)
+		}
+	}()
 
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			switch {
-			case strings.Contains(line, "[download]"):
-				progressChan <- "Downloading..."
-			case strings.Contains(line, "[ExtractAudio]"):
-				progressChan <- "Converting to MP3..."
-			case strings.Contains(line, "[ThumbnailsConvertor]"):
-				progressChan <- "Extracting thumbnail..."
-			}
+			progressChan <- line // Send stderr lines to the UI
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("Error reading stderr: %v", err)
 		}
 	}()
 
+	// Wait for the command to complete
 	if err := cmd.Wait(); err != nil {
+		progressChan <- fmt.Sprintf("Error: %v", err)
 		return fmt.Errorf("conversion failed: %v", err)
 	}
 
+	progressChan <- "Download and conversion successful!"
 	return nil
 }
 
@@ -329,7 +352,10 @@ func getAudioDuration(filepath string) (string, error) {
 	}
 
 	var seconds float64
-	fmt.Sscanf(duration, "%f", &seconds)
+	_, err = fmt.Sscanf(duration, "%f", &seconds)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse duration: %v", err)
+	}
 
 	hours := int(seconds) / 3600
 	minutes := (int(seconds) % 3600) / 60

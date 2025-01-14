@@ -3,3 +3,4 @@ metadata
 .DS_Store
 youtube-podcast
 .env
+.vscode
