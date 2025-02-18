@@ -1,393 +1,423 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>YouTube to Podcast Converter</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <style>
-        :root {
-            --primary-color: #4CAF50;
-            --error-color: #c62828;
-            --success-color: #2e7d32;
-            --border-color: #ddd;
-        }
+      :root {
+        --primary-color: #4caf50;
+        --error-color: #c62828;
+        --success-color: #2e7d32;
+        --border-color: #ddd;
+      }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen-Sans, Ubuntu, Cantarell, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #f9f9f9;
+      }
+
+      h1 {
+        font-size: 24px;
+        margin-bottom: 20px;
+      }
+
+      @media (max-width: 480px) {
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f9f9f9;
+          padding: 10px;
         }
 
         h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
+          font-size: 20px;
         }
+      }
 
-        @media (max-width: 480px) {
-            body {
-                padding: 10px;
-            }
+      .alert {
+        padding: 12px;
+        margin: 10px 0;
+        border-radius: 8px;
+        font-size: 14px;
+      }
 
-            h1 {
-                font-size: 20px;
-            }
-        }
+      .alert.error {
+        background-color: #ffebee;
+        color: var(--error-color);
+        border: 1px solid #ffcdd2;
+      }
 
-        .alert {
-            padding: 12px;
-            margin: 10px 0;
-            border-radius: 8px;
-            font-size: 14px;
-        }
+      .alert.success {
+        background-color: #e8f5e9;
+        color: var(--success-color);
+        border: 1px solid #c8e6c9;
+      }
 
-        .alert.error {
-            background-color: #ffebee;
-            color: var(--error-color);
-            border: 1px solid #ffcdd2;
-        }
+      .form-container {
+        margin: 20px 0;
+        padding: 20px;
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
 
-        .alert.success {
-            background-color: #e8f5e9;
-            color: var(--success-color);
-            border: 1px solid #c8e6c9;
-        }
+      .url-input-container {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
 
-        .form-container {
-            margin: 20px 0;
-            padding: 20px;
-            background: white;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+      input[type="text"] {
+        flex: 1;
+        min-width: 200px;
+        padding: 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 16px;
+      }
 
-        .url-input-container {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
+      button {
+        padding: 12px 20px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.2s;
+      }
 
-        input[type="text"] {
-            flex: 1;
-            min-width: 200px;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 16px;
-        }
+      button:hover:not(:disabled) {
+        background-color: #45a049;
+      }
 
-        button {
-            padding: 12px 20px;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: background-color 0.2s;
-        }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
 
-        button:hover:not(:disabled) {
-            background-color: #45a049;
-        }
+      .episodes {
+        margin-top: 30px;
+      }
 
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
+      .episode {
+        padding: 20px;
+        margin-bottom: 20px;
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
 
-        .episodes {
-            margin-top: 30px;
-        }
+      .episode h3 {
+        margin-bottom: 10px;
+        font-size: 18px;
+        word-break: break-word;
+      }
 
-        .episode {
-            padding: 20px;
-            margin-bottom: 20px;
-            background: white;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+      .metadata {
+        color: #666;
+        margin-bottom: 15px;
+        font-size: 14px;
+      }
 
-        .episode h3 {
-            margin-bottom: 10px;
-            font-size: 18px;
-            word-break: break-word;
-        }
+      .metadata span {
+        display: inline-block;
+        margin-right: 15px;
+        margin-bottom: 5px;
+      }
 
-        .metadata {
-            color: #666;
-            margin-bottom: 15px;
-            font-size: 14px;
-        }
+      .progress-container {
+        margin-top: 15px;
+        padding: 15px;
+        background: #f5f5f5;
+        border-radius: 6px;
+        display: none;
+      }
 
-        .metadata span {
-            display: inline-block;
-            margin-right: 15px;
-            margin-bottom: 5px;
-        }
+      .progress-text {
+        font-size: 14px;
+        color: #666;
+        white-space: pre-wrap;
+        font-family: monospace;
+      }
 
-        .progress-container {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f5f5f5;
-            border-radius: 6px;
-            display: none;
-        }
+      .feed-url {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
 
-        .progress-text {
-            font-size: 14px;
-            color: #666;
-        }
+      .feed-url code {
+        display: block;
+        margin: 10px 0;
+        padding: 10px;
+        background: #f5f5f5;
+        border-radius: 4px;
+        word-break: break-all;
+      }
 
-        .feed-url {
-            margin: 20px 0;
-            padding: 15px;
-            background-color: white;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+      .audio-player {
+        width: 100%;
+        margin-top: 15px;
+      }
 
-        .feed-url code {
-            display: block;
-            margin: 10px 0;
-            padding: 10px;
-            background: #f5f5f5;
-            border-radius: 4px;
-            word-break: break-all;
-        }
+      .audio-player audio {
+        width: 100%;
+        border-radius: 6px;
+        background: #f5f5f5;
+      }
 
-        /* Enhanced Audio Player */
-        .audio-player {
-            width: 100%;
-            margin-top: 15px;
-        }
-
+      @media (max-width: 480px) {
         .audio-player audio {
-            width: 100%;
-            border-radius: 6px;
-            background: #f5f5f5;
+          height: 54px;
         }
+      }
 
-        /* Make audio controls larger on mobile */
-        @media (max-width: 480px) {
-            .audio-player audio {
-                height: 54px; /* Larger touch target */
-            }
-        }
+      .player-controls {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+      }
 
-        /* Player Controls */
-        .player-controls {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
+      .player-controls button {
+        padding: 8px 12px;
+        font-size: 14px;
+      }
 
-        .player-controls button {
-            padding: 8px 12px;
-            font-size: 14px;
-        }
-
-        .playback-rate {
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
-        }
+      .playback-rate {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <h1>YouTube to Podcast Converter</h1>
 
     {{if .Message}}
-    <div class="alert success">
-        {{.Message}}
-    </div>
-    {{end}}
-
-    {{if .Error}}
-    <div class="alert error">
-        {{.Error}}
-    </div>
+    <div class="alert success">{{.Message}}</div>
+    {{end}} {{if .Error}}
+    <div class="alert error">{{.Error}}</div>
     {{end}}
 
     <div class="form-container">
-        <form id="convertForm" action="/convert" method="POST">
-            <div class="url-input-container">
-                <input type="text" name="url" placeholder="Enter YouTube URL" required>
-                <button type="submit">Convert to MP3</button>
-            </div>
-        </form>
-        <div id="progress" class="progress-container">
-            <pre div class="progress-text"></div>
+      <form id="convertForm" action="/convert" method="POST">
+        <div class="url-input-container">
+          <input
+            type="text"
+            name="url"
+            placeholder="Enter YouTube URL"
+            required
+          />
+          <button type="submit">Convert to MP3</button>
         </div>
+      </form>
+      <div id="progress" class="progress-container">
+        <div class="progress-text"></div>
+      </div>
     </div>
 
     <div class="feed-url">
-        <strong>RSS Feed URL:</strong>
-        <code id="feedUrl"></code>
-        <button onclick="copyFeedUrl()">Copy</button>
+      <strong>RSS Feed URL:</strong>
+      <code id="feedUrl"></code>
+      <button onclick="copyFeedUrl()">Copy</button>
     </div>
 
     <div class="episodes">
-        <h2>Available Episodes</h2>
-        {{range .Episodes}}
-        <div class="episode">
-            <h3>{{.Title}}</h3>
-            <div class="metadata">
-                <span>Duration: {{.Duration}}</span>
-                <span>Added: {{.PubDate}}</span>
-            </div>
-            <div class="audio-player">
-                <audio controls preload="metadata" data-title="{{.Title}}">
-                    <source src="/mp3s/{{.File}}" type="audio/mpeg">
-                    Your browser does not support the audio element.
-                </audio>
-                <div class="player-controls">
-                    <select class="playback-rate" onchange="changePlaybackRate(this)">
-                        <option value="0.5">0.5x</option>
-                        <option value="0.75">0.75x</option>
-                        <option value="1.0" selected>1.0x</option>
-                        <option value="1.25">1.25x</option>
-                        <option value="1.5">1.5x</option>
-                        <option value="2.0">2.0x</option>
-                    </select>
-                    <button onclick="skipBackward(this)">-10s</button>
-                    <button onclick="skipForward(this)">+30s</button>
-                </div>
-            </div>
+      <h2>Available Episodes</h2>
+      {{range .Episodes}}
+      <div class="episode">
+        <h3>{{.Title}}</h3>
+        <div class="metadata">
+          <span>Duration: {{.Duration}}</span>
+          <span>Added: {{.PubDate}}</span>
         </div>
-        {{end}}
+        <div class="audio-player">
+          <audio controls preload="metadata" data-title="{{.Title}}">
+            <source src="/mp3s/{{.File}}" type="audio/mpeg" />
+            Your browser does not support the audio element.
+          </audio>
+          <div class="player-controls">
+            <select class="playback-rate" onchange="changePlaybackRate(this)">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1.0" selected>1.0x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2.0">2.0x</option>
+            </select>
+            <button onclick="skipBackward(this)">-10s</button>
+            <button onclick="skipForward(this)">+30s</button>
+          </div>
+        </div>
+        <form method="POST" action="/delete" style="display: inline">
+          <input type="hidden" name="filename" value="{{.File}}" />
+          <button
+            type="submit"
+            onclick="return confirm('Are you sure you want to delete this episode?')"
+          >
+            Delete
+          </button>
+        </form>
+      </div>
+      {{end}}
     </div>
 
     <script>
-        // Form submission and progress handling
-        document.getElementById('convertForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-            const form = this;
-            const progressDiv = document.getElementById('progress');
-            const progressText = progressDiv.querySelector('.progress-text');
-            const submitButton = form.querySelector('button');
+      document
+        .getElementById("convertForm")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+          const form = this;
+          const progressDiv = document.getElementById("progress");
+          const progressText = progressDiv.querySelector(".progress-text");
+          const submitButton = form.querySelector("button");
 
-            progressDiv.style.display = 'block';
-            progressText.textContent = ''; // Clear previous progress
-            submitButton.disabled = true;
+          progressDiv.style.display = "block";
+          progressText.textContent = "";
+          submitButton.disabled = true;
 
-            fetch(form.action, {
-                method: 'POST',
-                body: new FormData(form)
-            }).catch(error => {
-                progressText.textContent = 'Error starting conversion';
-                submitButton.disabled = false;
+          fetch(form.action, {
+            method: "POST",
+            body: new FormData(form),
+          })
+            .then((response) => response.json())
+            .catch((error) => {
+              progressText.textContent = "Error starting conversion";
+              submitButton.disabled = false;
+            })
+            .then((data) => {
+              if (data && data.sessionId) {
+                connectToEventSource(data.sessionId);
+              }
             });
 
-            const evtSource = new EventSource('/progress');
+          function connectToEventSource(sessionId) {
+            const evtSource = new EventSource(`/progress?id=${sessionId}`);
 
             evtSource.onmessage = function (event) {
-                const message = event.data;
+              const message = event.data;
 
-                if (message === 'DONE') {
-                    evtSource.close();
-                    window.location.reload();
-                    return;
-                }
+              if (message === "DONE") {
+                evtSource.close();
+                window.location.reload();
+                return;
+              }
 
-                // Append the new message
-                progressText.textContent += message + '\n';
+              progressText.textContent += message + "\n";
 
-                if (message === 'Conversion complete!' || message.startsWith('Error:')) {
-                    submitButton.disabled = false;
-                    evtSource.close();
-                }
+              if (
+                message === "Conversion complete!" ||
+                message.startsWith("Error:")
+              ) {
+                submitButton.disabled = false;
+                evtSource.close();
+              }
             };
 
             evtSource.onerror = function () {
-                progressText.textContent += 'Connection lost. Check downloads page for your file.\n';
-                submitButton.disabled = false;
-                evtSource.close();
+              progressText.textContent +=
+                "Connection lost. Check downloads page for your file.\n";
+              submitButton.disabled = false;
+              evtSource.close();
             };
+          }
         });
 
-        // Feed URL handling
-        const feedUrl = window.location.protocol + '//' + window.location.host + '/feed';
-        document.getElementById('feedUrl').textContent = feedUrl;
+      const feedUrl =
+        window.location.protocol + "//" + window.location.host + "/feed";
+      document.getElementById("feedUrl").textContent = feedUrl;
 
-        function copyFeedUrl() {
-            navigator.clipboard.writeText(feedUrl)
-                .then(() => alert('Feed URL copied to clipboard!'))
-                .catch(err => console.error('Error copying text: ', err));
-        }
+      function copyFeedUrl() {
+        navigator.clipboard
+          .writeText(feedUrl)
+          .then(() => alert("Feed URL copied to clipboard!"))
+          .catch((err) => console.error("Error copying text: ", err));
+      }
 
-        // Media Session API for better mobile controls
-        if ('mediaSession' in navigator) {
-            const audioElements = document.querySelectorAll('audio');
-            audioElements.forEach(audio => {
-                audio.addEventListener('play', () => {
-                    navigator.mediaSession.metadata = new MediaMetadata({
-                        title: audio.dataset.title
-                    });
-
-                    navigator.mediaSession.setActionHandler('previoustrack', null);
-                    navigator.mediaSession.setActionHandler('nexttrack', null);
-                    
-                    navigator.mediaSession.setActionHandler('seekbackward', () => {
-                        audio.currentTime = Math.max(audio.currentTime - 10, 0);
-                    });
-                    
-                    navigator.mediaSession.setActionHandler('seekforward', () => {
-                        audio.currentTime = Math.min(audio.currentTime + 30, audio.duration);
-                    });
-                });
+      if ("mediaSession" in navigator) {
+        const audioElements = document.querySelectorAll("audio");
+        audioElements.forEach((audio) => {
+          audio.addEventListener("play", () => {
+            navigator.mediaSession.metadata = new MediaMetadata({
+              title: audio.dataset.title,
             });
-        }
 
-        // Playback controls
-        function changePlaybackRate(select) {
-            const audio = select.closest('.audio-player').querySelector('audio');
-            audio.playbackRate = parseFloat(select.value);
-        }
+            navigator.mediaSession.setActionHandler("previoustrack", null);
+            navigator.mediaSession.setActionHandler("nexttrack", null);
 
-        function skipBackward(button) {
-            const audio = button.closest('.audio-player').querySelector('audio');
-            audio.currentTime = Math.max(audio.currentTime - 10, 0);
-        }
-
-        function skipForward(button) {
-            const audio = button.closest('.audio-player').querySelector('audio');
-            audio.currentTime = Math.min(audio.currentTime + 30, audio.duration);
-        }
-
-        // Keep audio playing when screen is locked
-        document.addEventListener('visibilitychange', function() {
-            const audioElements = document.querySelectorAll('audio');
-            audioElements.forEach(audio => {
-                if (audio.played.length > 0) {
-                    // Keep playing if already playing
-                    audio.play().catch(() => {});
-                }
+            navigator.mediaSession.setActionHandler("seekbackward", () => {
+              audio.currentTime = Math.max(audio.currentTime - 10, 0);
             });
+
+            navigator.mediaSession.setActionHandler("seekforward", () => {
+              audio.currentTime = Math.min(
+                audio.currentTime + 30,
+                audio.duration
+              );
+            });
+          });
         });
+      }
 
-        // Prevent audio conflicts
-        document.addEventListener('play', function(e) {
-            if (e.target.tagName.toLowerCase() === 'audio') {
-                const audioElements = document.querySelectorAll('audio');
-                audioElements.forEach(audio => {
-                    if (audio !== e.target && !audio.paused) {
-                        audio.pause();
-                    }
-                });
+      function changePlaybackRate(select) {
+        const audio = select.closest(".audio-player").querySelector("audio");
+        audio.playbackRate = parseFloat(select.value);
+      }
+
+      function skipBackward(button) {
+        const audio = button.closest(".audio-player").querySelector("audio");
+        audio.currentTime = Math.max(audio.currentTime - 10, 0);
+      }
+
+      function skipForward(button) {
+        const audio = button.closest(".audio-player").querySelector("audio");
+        audio.currentTime = Math.min(audio.currentTime + 30, audio.duration);
+      }
+
+      // Keep audio playing when screen is locked - mobile only
+      document.addEventListener("visibilitychange", function () {
+        const isMobile = "ontouchstart" in window && window.innerWidth <= 768;
+
+        if (isMobile) {
+          const audioElements = document.querySelectorAll("audio");
+          audioElements.forEach((audio) => {
+            if (audio.played.length > 0) {
+              // Keep playing if already playing
+              audio.play().catch(() => {});
             }
-        }, true);
+          });
+        }
+      });
+
+      document.addEventListener(
+        "play",
+        function (e) {
+          if (e.target.tagName.toLowerCase() === "audio") {
+            const audioElements = document.querySelectorAll("audio");
+            audioElements.forEach((audio) => {
+              if (audio !== e.target && !audio.paused) {
+                audio.pause();
+              }
+            });
+          }
+        },
+        true
+      );
     </script>
-</body>
+  </body>
 </html>
