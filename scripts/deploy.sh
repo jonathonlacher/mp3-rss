@@ -20,8 +20,8 @@ APP_DIR="${APP_DIR:-/opt/youtube-podcast}"
 echo "Using VM_IP=${VM_IP}"
 echo "Using APP_DIR=${APP_DIR}"
 
-# Build for Linux
-echo "Building for Linux..."
+# Build for Linux with embedded static files
+echo "Building for Linux with embedded static files..."
 GOOS=linux GOARCH=amd64 go build -o youtube-podcast
 
 # First copy to /tmp
@@ -32,9 +32,6 @@ scp youtube-podcast root@"$VM_IP":/tmp/
 echo "Moving binary to final location..."
 ssh root@"$VM_IP" "mv /tmp/youtube-podcast $APP_DIR/ && chmod 755 $APP_DIR/youtube-podcast"
 
-# Copy template
-echo "Copying template..."
-scp templates/index.html root@"$VM_IP":"$APP_DIR"/templates/
 
 # Setup systemd service
 echo "Setting up systemd service..."

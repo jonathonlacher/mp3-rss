@@ -2,13 +2,20 @@
 
 A simple web application that converts YouTube videos to MP3s and serves them via an RSS feed for podcast apps.
 
+## Features
+
+- Converts YouTube videos to high-quality MP3s
+- Optional audio normalization to make volume levels consistent
+- Serves MP3s via RSS feed compatible with podcast apps
+- Simple web interface for managing conversions and episodes
+
 ## Installation
 
 1. First-time VM setup:
 
     ```bash
     # Copy the setup script to VM
-    scp scripts/setup.sh root@<VM_IP>:
+    scp scripts/vm-setup.sh root@<VM_IP>:setup.sh
 
     # SSH to VM and run setup
     ssh root@<VM_IP> "bash setup.sh"
@@ -17,7 +24,7 @@ A simple web application that converts YouTube videos to MP3s and serves them vi
 2. Edit `.env`:
 
     ```env
-    VM_IP="vm-ips"
+    VM_IP="your-vm-ip"
     ```
 
 ## Deployment
@@ -43,22 +50,22 @@ From local:
 ## Maintenance
 
 - Keep an eye on disk usage in `/opt/youtube-podcast/mp3s`
-- Periodically update `yt-dlp`:
-  
+- Periodically update `yt-dlp` using the update script:
+
     ```bash
-    ssh root@<VM_IP> "pip3 install -U yt-dlp"
+    ./scripts/update-assets.sh
     ```
 
 ## Troubleshooting
 
-- Check systemd service status:
-  
+- Check `systemd` service status:
+
   ```bash
   ssh root@<VM_IP> "systemctl status youtube-podcast"
   ```
 
 - View logs:
-  
+
   ```bash
   ssh root@<VM_IP> "journalctl -u youtube-podcast -f"
   ```
